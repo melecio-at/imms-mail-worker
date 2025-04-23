@@ -9,6 +9,36 @@ const CHECK_ERROR_INTERVAL_MS = 10000; // 10 seconds.
 const CHECK_INTERVAL_MS = 2000; // 2 seconds.
 const workerCode = "worker1";
 const workerKey = "Password123!";
+const emailStatus = {
+  beforeSending: '送信前',
+  sending: '送信中',
+  sent: '送信済',
+  error: 'エラー',
+};
+
+async function setEmailStatus(workerCode, status, emailId, type, message, workerKey) {
+  await axios
+  .post(UPDATE_EMAIL_STATUS_API, {
+    worker_code: workerCode,
+    status: status,
+    emailId: emailId,
+    type: type,
+    message: message,
+  },
+  {
+    headers: {
+      "X-Worker-Key": workerKey, // 👈 your custom header here
+      "Content-Type": "application/json", // optional, axios sets this automatically
+    },
+  })
+  .then((response) => {
+    console.log("✅ Done setting status " + emailId + ":", response.data);
+  })
+  .catch((err) => {
+    console.error("❌ Error Setting Status:" + emailId, err.response?.data || err.message);
+    // return setTimeout(setEmailStatus(workerCode, status, emailId, type, err.message, workerKey), CHECK_ERROR_INTERVAL_MS);
+  });
+}
 
 async function fetchAndSendEmail() {
   let emailId = null;
@@ -63,59 +93,16 @@ async function fetchAndSendEmail() {
 
     await transporter.sendMail(mailOptions);
 
-    console.log(`📤 Sent: "${parsed.subject}" to ${parsed.to.text}`);
-    console.log("✅ emailId:", emailId);
+    console.log(`📤 [${emailId}] Sent: "${parsed.subject}" to ${parsed.to.text}`);
 
-    await axios
-      .post(
-        UPDATE_EMAIL_STATUS_API,
-        {
-          worker_code: workerCode,
-          status: "Sent",
-          email_id: emailId,
-        },
-        {
-          headers: {
-            "X-Worker-Key": workerKey, // 👈 your custom header here
-            "Content-Type": "application/json", // optional, axios sets this automatically
-          },
-        }
-      )
-      .then((response) => {
-        console.log("✅ Update email status successful:", response.data);
-      })
-      .catch((error) => {
-        console.error(
-          "❌ Error upon updating email status:",
-          error.response?.data || error.message
-        );
-      });
+    await setEmailStatus(workerCode, emailStatus.sent, emailId, 'OK', null, workerKey)
 
-    // fetchAndSendEmail();
     setTimeout(fetchAndSendEmail, CHECK_INTERVAL_MS);
   } catch (error) {
-    await axios
-      .post(UPDATE_EMAIL_STATUS_API, {
-        worker_code: workerCode,
-        status: "Before Sending",
-        emailId: emailId,
-        type: "Error",
-        status: error.message,
-      },
-      {
-        headers: {
-          "X-Worker-Key": workerKey, // 👈 your custom header here
-          "Content-Type": "application/json", // optional, axios sets this automatically
-        },
-      })
-      .then((response) => {
-        console.log("✅ Set status back to Before Sending " + emailId + ":", response.data);
-      })
-      .catch((err) => {
-        console.error("❌ Error:", err.response?.data || err.message);
-      });
 
-    console.error("❌ Error:", error.message);
+    await setEmailStatus(workerCode, emailStatus.error, emailId, 'Error', error.message, workerKey)
+
+    console.error("❌ Error sending email:" + emailId, error.message);
     setTimeout(fetchAndSendEmail, CHECK_ERROR_INTERVAL_MS);
   }
 }
